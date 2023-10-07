@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Debank Pools AdapterId
 // @namespace    http://tampermonkey.net/
-// @version      0.1
+// @version      1.0.0
 // @description  提供快捷的Debank池子分类
 // @author       cuukenn
 // @match        https://debank.com/protocols/*
@@ -180,7 +180,7 @@ const debankAdapterExtension = (function () {
                     $("#loadData").html("加载中...");
                     $("#loadData").attr("disabled", true);
                     dataUtil
-                        .fetchAllData("mnt_fusionx", 20, "id")
+                        .fetchAllData(config.protocol, config.limit, "id")
                         .then((res) => {
                             config.pools = res;
                             config.transformedPools = dataUtil.transform(
@@ -334,16 +334,21 @@ const debankAdapterExtension = (function () {
             this.#_domUtil.loadTree([]);
         }
     }
-    class DefaultConsumer extends BaseConsumer {}
+    class DefaultConsumer extends BaseConsumer {
+        constructor(protocol, limit) {
+            super(protocol, limit);
+        }
+    }
     return {
         injectEnhance: () => {
             const url = window.location.href,
-                prefix = "https://debank.com/protocols";
+                prefix = "https://debank.com/protocols/";
             if (url.startsWith(prefix)) {
                 const protocol = url.replace(prefix, "").split("/")[0];
+                GM_log(`mached protocolId: ${protocol}`);
                 new DefaultConsumer(protocol, 20).parse();
             } else {
-                GM_log("未找到对于protocolId");
+                GM_log("no protocolId founded");
             }
         },
     };
