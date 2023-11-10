@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Debank Pools AdapterId
 // @namespace    http://tampermonkey.net/
-// @version      1.0.0
+// @version      1.1.0
 // @description  提供快捷的Debank池子分类
 // @author       cuukenn
 // @match        https://debank.com/protocols/*
@@ -76,8 +76,8 @@ const debankAdapterExtension = (function () {
         };
     })();
     const dataUtil = (function () {
-        const fetchData = async (finalPools, id, start, limit, key) => {
-            let data = await fetch(
+        const fetchData = (finalPools, id, start, limit, key) => {
+            return fetch(
                 `https://api.debank.com/protocol/pools?start=${start}&limit=${limit}&id=${id}&name=`,
                 {
                     headers: {
@@ -93,44 +93,70 @@ const debankAdapterExtension = (function () {
                 }
             )
                 .then((res) => res.json())
-                .then((res) => res.data.pools);
-
-            let newSize = 0;
-            for (let item of data) {
-                const typeName = item["name"];
-                let typeMap = finalPools.get(typeName);
-                if (typeMap == null) {
-                    typeMap = new Map();
-                    finalPools.set(typeName, typeMap);
-                }
-                const adapterId = item["adapter_id"];
-                let adapterSet = typeMap.get(adapterId);
-                if (adapterSet == null) {
-                    adapterSet = new Set();
-                    typeMap.set(adapterId, adapterSet);
-                }
-                adapterSet.add(item[key]);
-                newSize++;
-            }
-            return newSize;
+                .then((res) => res.data.pools)
+                .then((data) => {
+                    let newSize = 0;
+                    for (let item of data) {
+                        const typeName = item["name"];
+                        let typeMap = finalPools.get(typeName);
+                        if (typeMap == null) {
+                            typeMap = new Map();
+                            finalPools.set(typeName, typeMap);
+                        }
+                        const adapterId = item["adapter_id"];
+                        let adapterSet = typeMap.get(adapterId);
+                        if (adapterSet == null) {
+                            adapterSet = new Set();
+                            typeMap.set(adapterId, adapterSet);
+                        }
+                        adapterSet.add(item[key]);
+                        newSize++;
+                    }
+                    return new Promise((resolve) =>
+                        resolve({
+                            finalPools,
+                            id,
+                            limit,
+                            key,
+                            start: start + newSize,
+                            hasNext: newSize > 0,
+                        })
+                    );
+                });
         };
-        const fetchAllData = async (id, limit, key) => {
-            let start = 0;
-            const finalPools = new Map();
-            while (true) {
-                let newSize = await fetchData(
-                    finalPools,
-                    id,
-                    start,
-                    limit,
-                    key
+        const fetchAllData = (id, limit, key, dealTask) => {
+            const sleep = (task, time) => {
+                return new Promise((resolve) =>
+                    setTimeout(() => resolve(task), time)
                 );
-                if (newSize <= 0) {
-                    break;
-                }
-                start += limit;
-            }
-            return finalPools;
+            };
+            const sleepTask = (param) => {
+                sleep(
+                    fetchData(
+                        param.finalPools,
+                        param.id,
+                        param.start,
+                        param.limit,
+                        param.key
+                    ),
+                    500 + Math.random() * 500
+                ).then((res) => {
+                    if (res.hasNext) {
+                        return new Promise((resolve) =>
+                            resolve(sleepTask(res))
+                        );
+                    } else {
+                        dealTask(res.finalPools);
+                    }
+                });
+            };
+            return sleepTask({
+                finalPools: new Map(),
+                id,
+                start: 0,
+                limit,
+                key,
+            });
         };
         const transform = (data) => {
             const transformed = [];
@@ -179,19 +205,26 @@ const debankAdapterExtension = (function () {
                 if (config.transformedPools.length == 0) {
                     $("#loadData").html("加载中...");
                     $("#loadData").attr("disabled", true);
-                    dataUtil
-                        .fetchAllData(config.protocol, config.limit, "id")
-                        .then((res) => {
-                            config.pools = res;
-                            config.transformedPools = dataUtil.transform(
-                                config.pools
-                            );
-                            loadTree(config.transformedPools);
-                        })
-                        .finally(() => {
-                            $("#loadData").html("加载数据");
-                            $("#loadData").removeAttr("disabled");
-                        });
+                    dataUtil.fetchAllData(
+                        config.protocol,
+                        config.limit,
+                        "id",
+                        (res) => {
+                            return new Promise((resolve) => {
+                                resolve(res);
+                            })
+                                .then((data) => {
+                                    config.pools = res;
+                                    config.transformedPools =
+                                        dataUtil.transform(config.pools);
+                                    loadTree(config.transformedPools);
+                                })
+                                .finally(() => {
+                                    $("#loadData").html("加载数据");
+                                    $("#loadData").removeAttr("disabled");
+                                });
+                        }
+                    );
                 } else {
                     loadTree(config.transformedPools);
                 }
